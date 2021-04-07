@@ -1,0 +1,177 @@
+---
+title: "Machine Learning Assingment"
+author: "Francisco Mimica Porras"
+date: "4/6/2021"
+output: html_document
+---
+
+#Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har] (see the section on the Weight Lifting Exercise Dataset).
+
+#Data
+
+The training data for this project are available here:
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv]
+
+The test data are available here:
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv]
+
+The data for this project come from this source: [http://groupware.les.inf.puc-rio.br/har]. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+# Processing Data
+
+Loaded databases from website: training and testing.
+
+```{r}
+trainingweb <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+training <- read.csv(url(trainingweb), na.strings=c("NA","#DIV/0!",""),header=TRUE)
+testingweb <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+testing <- read.csv(url(testingweb),na.strings=c("NA","#DIV/0!",""),header=TRUE)
+cbind(dim(training),dim(testing))
+```
+Training dataset: 19622 observations and 160 variables. 
+Testing dataset: 20 observations and 160 variables.
+
+# Data Cleaning
+
+Step 1: Removing predictors with low variability. 
+
+These datasets, training and testing, have 160 variables each. the first step is identify the variables are not contributing with variability to the model. I will use the "nearZerovar" function for this process. It will not only removes predictors that have one unique value across samples (zero variance predictors), but also removes predictors that have both 1) few unique values relative to the number of samples and 2) large ratio of the frequency of the most common value to the frequency of the second most common value (near-zero variance predictors)
+
+```{r}
+library(lattice)
+library(ggplot2)
+library(caret)
+zvartraining <- nearZeroVar(training)
+training_zvar <- training[,-zvartraining]
+testing_zvar <- testing[,-zvartraining]
+cbind(dim(training_zvar), dim(testing_zvar))
+```
+Training dataset: 19622 observations and 124 variables. 
+Testing dataset: 20 observations and 124 variables.
+
+Step 2: Removing predictors with high missing value rate. 
+
+```{r}
+na_col_training <- sapply(training_zvar, function(x) mean(is.na(x))) > 0.95 # threshold is 95%
+training_zvar <- training_zvar[,na_col_training == FALSE]
+testing_zvar <- testing_zvar[,na_col_training == FALSE]
+cbind(dim(training_zvar), dim(testing_zvar))
+```
+Training dataset: 19622 observations and 59 variables. 
+Testing dataset: 20 observations and 59 variables
+
+Step 3: Removing identifiers (1 to 7)
+
+```{r}
+training_zvar <- training_zvar[, -(1:7)]
+testing_zvar  <- testing_zvar[, -(1:7)]
+cbind(dim(training_zvar), dim(testing_zvar))
+```
+Training_zvar dataset: 19622 observations and 52 variables. 
+Testing_zvar dataset: 20 observations and 52 variables
+
+## Partitioning 
+
+The training_zvar will be split our in the training (60% of the total data) and testing sets (40% of the total data).
+
+```{r}
+inTrain <- createDataPartition(training_zvar$classe, p=0.6, list=FALSE)
+training.Model <- training_zvar[inTrain,]
+testing.Model <- training_zvar[-inTrain,]
+cbind(dim(training.Model),dim(testing.Model))
+table(training.Model$classe)
+table(testing.Model$classe) 
+```
+
+Training.Model dataset: 11776 observations and 52 variables. 
+Testing.Model dataset: 7846 observations and 52 variables
+
+## Model Selection
+
+### Tree Model (TM)
+
+```{r}
+library(lattice)
+library(ggplot2)
+library(caret)
+TM_modfit<- train(classe ~ ., method="rpart", data = training.Model)
+print(TM_modfit$finalModel)
+library(tibble)
+library(bitops)
+library(rattle)
+TM_prediction <- predict(TM_modfit, newdata= testing.Model)
+confusionMatrix(TM_prediction,as.factor(testing.Model$classe))
+```
+
+Plotting Tree Model
+
+```{r}
+fancyRpartPlot(TM_modfit$finalModel)
+```
+
+Overall Statistics: Accuracy : 0.6021 
+
+### Random Forest Model (RFM)
+
+```{r}
+RFM_modfit <- train(classe ~ ., data = training.Model, method = "rf", ntree = 100)
+RFM_modfit
+print(RFM_modfit$finalModel)
+RFM_prediction <- predict(RFM_modfit, testing.Model)
+RFM_pred_conf <- confusionMatrix(RFM_prediction, as.factor(testing.Model$classe))
+RFM_pred_conf
+
+```
+
+Plotting Random Forest Model
+
+```{r}
+plot(RFM_pred_conf$table, col = RFM_pred_conf$byClass, 
+     main = paste("Random Forest - Accuracy Level =",
+                  round(RFM_pred_conf$overall['Accuracy'], 4)))
+```
+
+Overall Statistics:    Accuracy : 0.9899  
+
+### Gradient Boosting Model (GBM)
+
+```{r}
+GBM_modfit <- train(classe ~ ., data = training.Model, method = "gbm", verbose = FALSE)
+GBM_modfit$finalModel
+GBM_prediction <- predict(GBM_modfit, testing.Model)
+GBM_pred_conf <- confusionMatrix(GBM_prediction,as.factor(testing.Model$classe))
+GBM_pred_conf
+```
+Overall Statistics:  Accuracy : 0.9583
+
+Plotting Gradient Boosting Model 
+
+```{r}
+plot(GBM_pred_conf$table, col = GBM_pred_conf$byClass, 
+     main = paste("Gradient Boosting Model - Accuracy Level =",
+                  round(GBM_pred_conf$overall['Accuracy'], 4)))
+```
+
+The Tree model has not achieved the prediction accuracy level in order to be included in the next analysis. The final models selected with high prediction accuracy levels are the Gradient Boosting and Random Forest models. 
+
+### Final Comparison Between Gradient Boosting and Random Forest models.
+
+```{r}
+rbind(RFM_pred_conf$overall,GBM_pred_conf$overall)
+```
+
+According with this, the best model is the Random Forest Model: Overall Accuracy 98.95%.
+
+
+### Validation: 
+
+I will use the selected model for the final prediction. The utilized data is testing_zvar.
+
+```{r}
+Final_Validation_Model <- predict(RFM_modfit, testing_zvar)
+Final_Validation_Model
+```
